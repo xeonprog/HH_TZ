@@ -7,12 +7,14 @@ import requests
 from PIL import Image
 from database import Database
 from config import WEATHER_API_KEY
+import logging
 
 db = Database()
 
 class Form(StatesGroup):
     name = State()
     age = State()
+    city = State()  # Добавлено состояние для запроса города
 
 class Handlers:
     user_id = None
@@ -21,7 +23,7 @@ class Handlers:
     def register_handlers(dp: Dispatcher, bot):
         dp.register_message_handler(lambda message: Handlers.send_welcome(message, bot), commands=['start'])
         dp.register_message_handler(Handlers.send_help, commands=['help'])
-        dp.register_message_handler(lambda message: Handlers.echo(message), commands=['echo'])
+        dp.register_message_handler(Handlers.echo, commands=['echo'])
         dp.register_message_handler(Handlers.send_inline, commands=['inline'])
         dp.register_callback_query_handler(Handlers.process_callback, lambda c: c.data in ['choice1', 'choice2'])
         dp.register_message_handler(Handlers.cmd_register, commands=['register'])
@@ -30,7 +32,7 @@ class Handlers:
         dp.register_message_handler(lambda message: Handlers.handle_docs_photo(message, bot), content_types=['photo'])
         dp.register_message_handler(Handlers.list_users, commands=['users'])
         dp.register_message_handler(Handlers.get_weather, commands=['weather'])
-        dp.register_message_handler(Handlers.fetch_weather, lambda message: message.text.isalpha())
+        dp.register_message_handler(Handlers.process_city, state=Form.city)  # Обработка состояния ввода города
         dp.register_message_handler(Handlers.clear_reply_keyboard, commands=['clear_keyb'])
 
     @staticmethod
@@ -44,7 +46,12 @@ class Handlers:
 
     @staticmethod
     async def echo(message: types.Message):
-        text_to_echo = message.get_args()
+        # Добавим логирование
+        logging.info(f"Echo command received: {message.text}")
+        # Получение текста после команды /echo
+        text_to_echo = message.text[len("/echo"):].strip()
+        logging.info(f"Text to echo: {text_to_echo}")
+
         if not text_to_echo:
             await message.reply("Пожалуйста, предоставьте текст для эха после команды.")
         else:
@@ -95,7 +102,6 @@ class Handlers:
         except ValueError:
             await message.reply("Пожалуйста, введите корректный возраст (целое число).")
 
-
     @staticmethod
     async def handle_docs_photo(message: types.Message, bot):
         file_id = message.photo[-1].file_id
@@ -116,10 +122,11 @@ class Handlers:
 
     @staticmethod
     async def get_weather(message: types.Message):
+        await Form.city.set()
         await message.reply("Введите название города:")
 
     @staticmethod
-    async def fetch_weather(message: types.Message):
+    async def process_city(message: types.Message, state: FSMContext):
         city = message.text
         url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
         try:
@@ -134,3 +141,4 @@ class Handlers:
                 await message.reply("Город не найден. Попробуйте снова.")
         except requests.exceptions.RequestException as e:
             await message.reply(f"Произошла ошибка при получении данных о погоде: {e}")
+        await state.finish()
